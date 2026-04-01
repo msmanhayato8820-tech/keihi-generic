@@ -69,8 +69,14 @@ export default function SettingsPage() {
     <div>
       <h1 className="page-title">設定</h1>
 
-      {/* Google Drive Settings */}
-      <div className="settings-section">
+      {/* Google Drive Settings - 管理者のみ */}
+      {user.role !== 'admin' && (
+        <div className="settings-section" style={{ opacity: 0.5, pointerEvents: 'none' }}>
+          <div className="settings-title">📁 Google Drive 連携設定</div>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>🔒 この設定は管理者のみ変更できます。</p>
+        </div>
+      )}
+      {user.role === 'admin' && <div className="settings-section">
         <div className="settings-title">📁 Google Drive 連携設定</div>
         <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px', lineHeight: '1.6' }}>
           領収書を Google Drive に自動アップロードするための設定です。
@@ -107,10 +113,16 @@ export default function SettingsPage() {
           Drive設定を保存
         </button>
         {saved === 'drive' && <p className="success-message" style={{ marginTop: '10px' }}>✓ 保存しました</p>}
-      </div>
+      </div>}
 
-      {/* GAS URL Settings */}
-      <div className="settings-section">
+      {/* GAS URL Settings - 管理者のみ */}
+      {user.role !== 'admin' && (
+        <div className="settings-section" style={{ opacity: 0.5, pointerEvents: 'none' }}>
+          <div className="settings-title">🔗 Google Apps Script (GAS) URL 設定</div>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>🔒 この設定は管理者のみ変更できます。</p>
+        </div>
+      )}
+      {user.role === 'admin' && <div className="settings-section">
         <div className="settings-title">🔗 Google Apps Script (GAS) URL 設定</div>
         <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px', lineHeight: '1.6' }}>
           スプレッドシートと連携するための GAS Web App URL を設定します。
@@ -133,7 +145,7 @@ export default function SettingsPage() {
           </button>
         </div>
         {saved === 'gas' && <p className="success-message" style={{ marginTop: '10px' }}>✓ 保存しました</p>}
-      </div>
+      </div>}
 
       {/* Category management - admin only */}
       {user.role === 'admin' && (
