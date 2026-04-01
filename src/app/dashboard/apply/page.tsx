@@ -1,5 +1,5 @@
 'use client';
-import { useState, useRef, DragEvent } from 'react';
+import { useState, useRef, DragEvent, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { useDB } from '@/lib/db';
@@ -8,10 +8,46 @@ import { LineItem } from '@/types';
 
 function genId() { return Math.random().toString(36).slice(2); }
 
+// OCR: 領収書から金額を抽出
+async function extractAmountFromImage(dataUrl: string): Promise<string> {
+  try {
+    const Tesseract = (await import('tesseract.js')).default;
+    const result = await Tesseract.recognize(dataUrl, 'jpn+eng', {
+      logger: () => {},
+    });
+    const text = result.data.text.slice(0, 800);
+    const patterns = [
+      /合計[^\d]*[¥￥\\]?\s*([\d,]+)/,
+      /総額[^\d]*[¥￥\\]?\s*([\d,]+)/,
+      /金額[^\d]*[¥￥\\]?\s*([\d,]+)/,
+      /[¥￥\\]\s*([\d,]+)/,
+      /(\d{1,3}(?:,\d{3})+)(?:\s*円)/,
+      /(\d{4,})(?:\s*円|-)/,
+    ];
+    for (const p of patterns) {
+      const m = text.match(p);
+      if (m) return m[1].replace(/,/g, '');
+    }
+    return '';
+  } catch {
+    return '';
+  }
+}
+
+interface ReceiptItem {
+  id: string;
+  file: File;
+  dataUrl: string;
+  ocrLoading: boolean;
+  ocrAmount: string;
+  ocrApplied: boolean;
+}
+
 export default function ApplyPage() {
   const { user } = useAuth();
   const db = useDB();
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [description, setDescription] = useState('');
@@ -19,12 +55,10 @@ export default function ApplyPage() {
   const [lineItems, setLineItems] = useState<LineItem[]>([
     { id: genId(), category: db.categories[0]?.id || 1, amount: 0, taxType: 'tax_10' }
   ]);
-  const [receiptFile, setReceiptFile] = useState<File | null>(null);
-  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  const [receipts, setReceipts] = useState<ReceiptItem[]>([]);
   const [dragging, setDragging] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!user) return null;
 
@@ -43,19 +77,52 @@ export default function ApplyPage() {
     setLineItems(prev => prev.map(li => li.id === id ? { ...li, [field]: value } : li));
   };
 
-  const handleFileChange = (file: File | null) => {
-    if (!file) return;
-    setReceiptFile(file);
-    const reader = new FileReader();
-    reader.onload = e => setReceiptPreview(e.target?.result as string);
-    reader.readAsDataURL(file);
+  const applyOcrToLine = (receiptId: string, amount: string) => {
+    // 空の明細行を探すか、なければ新規追加
+    const emptyIdx = lineItems.findIndex(li => !li.amount || li.amount === 0);
+    if (emptyIdx >= 0) {
+      setLineItems(prev => prev.map((li, i) => i === emptyIdx ? { ...li, amount: Number(amount) } : li));
+    } else {
+      setLineItems(prev => [...prev, { id: genId(), category: db.categories[0]?.id || 1, amount: Number(amount), taxType: 'tax_10' }]);
+    }
+    setReceipts(prev => prev.map(r => r.id === receiptId ? { ...r, ocrApplied: true } : r));
+  };
+
+  const handleFileAdded = async (file: File) => {
+    if (!file.type.startsWith('image/') && !file.type.includes('pdf')) return;
+    if (receipts.length >= 10) { db.showToast('領収書は最大10枚です', 'error'); return; }
+
+    const dataUrl = await new Promise<string>(resolve => {
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target?.result as string);
+      reader.readAsDataURL(file);
+    });
+
+    const newReceipt: ReceiptItem = { id: genId(), file, dataUrl, ocrLoading: true, ocrAmount: '', ocrApplied: false };
+    setReceipts(prev => [...prev, newReceipt]);
+
+    // OCR実行（画像のみ）
+    if (file.type.startsWith('image/')) {
+      const amount = await extractAmountFromImage(dataUrl);
+      setReceipts(prev => prev.map(r => r.id === newReceipt.id ? { ...r, ocrLoading: false, ocrAmount: amount } : r));
+      // 金額が取れたら自動的に明細行に反映
+      if (amount) {
+        const emptyIdx = lineItems.findIndex(li => !li.amount || li.amount === 0);
+        if (emptyIdx >= 0) {
+          setLineItems(prev => prev.map((li, i) => i === emptyIdx ? { ...li, amount: Number(amount) } : li));
+          setReceipts(prev => prev.map(r => r.id === newReceipt.id ? { ...r, ocrApplied: true } : r));
+        }
+      }
+    } else {
+      setReceipts(prev => prev.map(r => r.id === newReceipt.id ? { ...r, ocrLoading: false } : r));
+    }
   };
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragging(false);
     const file = e.dataTransfer.files[0];
-    if (file) handleFileChange(file);
+    if (file) handleFileAdded(file);
   };
 
   const buildExpense = (status: string) => {
@@ -70,12 +137,13 @@ export default function ApplyPage() {
       memo,
       taxType: lineItems[0]?.taxType || 'tax_10',
       status,
-      receipt: receiptPreview || null,
+      receipt: receipts[0]?.file.name || null,
       driveFileId: null,
       approvalHistory: status === 'draft' ? [] : [
         { action: 'submitted', by: user.name, at: new Date().toISOString(), comment: '' }
       ],
       lineItems,
+      receipts: receipts.map(r => ({ filename: r.file.name, driveFileId: null })),
     };
   };
 
@@ -138,7 +206,7 @@ export default function ApplyPage() {
         {/* Line items */}
         <div className="form-group">
           <label className="form-label">明細</label>
-          {lineItems.map((li, idx) => (
+          {lineItems.map((li) => (
             <div key={li.id} className="line-item-row">
               <div>
                 <select className="form-control" value={li.category} onChange={e => updateLineItem(li.id, 'category', Number(e.target.value))}>
@@ -177,45 +245,102 @@ export default function ApplyPage() {
 
         {/* Receipt upload */}
         <div className="form-group">
-          <label className="form-label">領収書</label>
+          <label className="form-label">
+            領収書
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '400', marginLeft: '8px', textTransform: 'none', letterSpacing: 0 }}>
+              ※ 画像アップロードで金額を自動読取（OCR）
+            </span>
+          </label>
+
+          {/* Drop zone */}
           <div
-            className="drag-drop-area"
+            className={`drag-drop-area${dragging ? ' active' : ''}`}
             onClick={() => fileInputRef.current?.click()}
             onDragOver={e => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}
             onDrop={handleDrop}
-            style={{ borderColor: dragging ? 'rgba(59,130,246,.6)' : undefined }}
           >
-            {receiptPreview ? (
-              <div>
-                {receiptFile?.type?.startsWith('image/') ? (
-                  <img src={receiptPreview} alt="receipt" style={{ maxHeight: '200px', maxWidth: '100%', borderRadius: '8px', margin: '0 auto', display: 'block' }} />
-                ) : (
-                  <p style={{ color: 'var(--text-secondary)' }}>📎 {receiptFile?.name}</p>
-                )}
-                <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '8px' }}>クリックで変更</p>
-              </div>
-            ) : (
-              <div>
-                <p style={{ fontSize: '24px', marginBottom: '8px' }}>📎</p>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-                  クリックまたはドラッグ&ドロップで領収書をアップロード
-                </p>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '11px', marginTop: '4px', opacity: 0.6 }}>
-                  JPG, PNG, PDF対応
-                </p>
-              </div>
-            )}
+            <p style={{ fontSize: '24px', marginBottom: '8px' }}>📎</p>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+              クリックまたはドラッグ&ドロップで領収書を追加
+            </p>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '11px', marginTop: '4px', opacity: 0.6 }}>
+              JPG・PNG・PDF（最大10枚）
+            </p>
           </div>
           <input
-            ref={fileInputRef} type="file" accept="image/*,.pdf"
+            ref={fileInputRef} type="file" accept="image/*,.pdf" multiple
             style={{ display: 'none' }}
-            onChange={e => handleFileChange(e.target.files?.[0] || null)}
+            onChange={e => { Array.from(e.target.files || []).forEach(handleFileAdded); }}
           />
-          {receiptFile && (
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>
-              ✓ {receiptFile.name} ({(receiptFile.size / 1024).toFixed(1)} KB)
-            </p>
+
+          {/* Receipt previews */}
+          {receipts.length > 0 && (
+            <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {receipts.map(r => (
+                <div key={r.id} style={{
+                  border: '1px solid var(--border)', borderRadius: '12px', padding: '14px',
+                  background: 'var(--bg-alt)', display: 'flex', gap: '14px', alignItems: 'flex-start'
+                }}>
+                  {/* Image thumbnail */}
+                  {r.file.type.startsWith('image/') ? (
+                    <img
+                      src={r.dataUrl} alt="receipt"
+                      style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border)', cursor: 'pointer', flexShrink: 0 }}
+                      onClick={() => { const w = window.open('', '_blank'); if (w) { w.document.write(`<img src="${r.dataUrl}" style="max-width:100%;"/>`); w.document.close(); } }}
+                    />
+                  ) : (
+                    <div style={{ width: '80px', height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-card)', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '28px', flexShrink: 0 }}>📄</div>
+                  )}
+
+                  {/* OCR info */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {r.file.name}
+                    </p>
+
+                    {r.ocrLoading ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
+                        <span className="loading" style={{ width: '12px', height: '12px' }}></span>
+                        OCR読取中...
+                      </div>
+                    ) : r.ocrAmount ? (
+                      <div>
+                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                          OCR読取金額：
+                          <strong style={{ color: 'var(--text-accent)', fontSize: '14px', marginLeft: '4px' }}>
+                            ¥{Number(r.ocrAmount).toLocaleString()}
+                          </strong>
+                        </p>
+                        {r.ocrApplied ? (
+                          <span style={{ fontSize: '12px', color: 'var(--success-color)', fontWeight: '600' }}>✓ 明細に反映済み</span>
+                        ) : (
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => applyOcrToLine(r.id, r.ocrAmount)}
+                            style={{ fontSize: '12px', padding: '5px 12px' }}
+                          >
+                            ↓ 明細に金額を反映
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        {r.file.type.startsWith('image/') ? '金額を自動読取できませんでした' : 'PDFはOCR非対応'}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Remove button */}
+                  <button
+                    onClick={() => setReceipts(prev => prev.filter(x => x.id !== r.id))}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '18px', padding: '0', lineHeight: 1, flexShrink: 0 }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
         </div>
 
