@@ -17,6 +17,12 @@ function getStatusLabel(status: string) {
   return STATUS_OPTIONS.find(s => s.value === status)?.label || status;
 }
 
+// ISO文字列 or YYYY-MM-DD → YYYY-MM-DD に正規化
+function formatDate(s: string): string {
+  if (!s) return '-';
+  return s.slice(0, 10);
+}
+
 function actionLabel(action: string) {
   const m: Record<string, string> = {
     submitted: '申請', approved_manager: '部長承認', approved_accountant: '経理承認', rejected: '却下',
@@ -104,7 +110,7 @@ export default function ListPage() {
               <tr><td colSpan={7} className="no-data">申請がありません</td></tr>
             ) : paged.map(e => (
               <tr key={e.id}>
-                <td>{e.date}</td>
+                <td>{formatDate(e.date)}</td>
                 {user.role === 'admin' && <td style={{ fontSize: '12px' }}>{submitterName(e.userId)}</td>}
                 <td>{db.categories.find(c => c.id === e.category)?.icon} {db.categories.find(c => c.id === e.category)?.name || '-'}</td>
                 <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.description}</td>
@@ -130,7 +136,7 @@ export default function ListPage() {
           <div className="modal-content">
             <button className="modal-close" onClick={() => setSelected(null)}>×</button>
             <h2 className="modal-title">申請詳細</h2>
-            <div className="detail-row"><div className="detail-label">申請日</div><div className="detail-value">{selected.date}</div></div>
+            <div className="detail-row"><div className="detail-label">申請日</div><div className="detail-value">{formatDate(selected.date)}</div></div>
             <div className="detail-row"><div className="detail-label">申請者</div><div className="detail-value">{submitterName(selected.userId)}</div></div>
             <div className="detail-row"><div className="detail-label">説明</div><div className="detail-value">{selected.description}</div></div>
             {selected.memo && <div className="detail-row"><div className="detail-label">メモ</div><div className="detail-value">{selected.memo}</div></div>}

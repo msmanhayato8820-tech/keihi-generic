@@ -1,10 +1,11 @@
 'use client';
-import { useState, useRef, DragEvent, useCallback } from 'react';
+import { useState, useRef, DragEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { useDB } from '@/lib/db';
 import { TAX_TYPES } from '@/data/mock';
 import { LineItem } from '@/types';
+import { getDriveSettings, uploadFileToDrive } from '@/lib/gdrive';
 
 function genId() { return Math.random().toString(36).slice(2); }
 
@@ -125,23 +126,21 @@ export default function ApplyPage() {
     if (file) handleFileAdded(file);
   };
 
-  const buildExpense = (status: string) => {
+  const buildDraft = () => {
     const maxId = db.expenses.reduce((m, e) => Math.max(m, e.id), 0);
     return {
       id: maxId + 1,
-      userId: user.id,
+      userId: user!.id,
       date,
       category: lineItems[0]?.category || 1,
       amount: totalAmount,
       description,
       memo,
       taxType: lineItems[0]?.taxType || 'tax_10',
-      status,
+      status: 'draft',
       receipt: receipts[0]?.file.name || null,
       driveFileId: null,
-      approvalHistory: status === 'draft' ? [] : [
-        { action: 'submitted', by: user.name, at: new Date().toISOString(), comment: '' }
-      ],
+      approvalHistory: [] as any[],
       lineItems,
       receipts: receipts.map(r => ({ filename: r.file.name, driveFileId: null })),
     };
@@ -151,8 +150,48 @@ export default function ApplyPage() {
     if (!description.trim()) { db.showToast('説明を入力してください', 'error'); return; }
     if (totalAmount <= 0) { db.showToast('金額を入力してください', 'error'); return; }
     setSubmitting(true);
+
+    // Google Drive アップロード
+    const driveSettings = getDriveSettings();
+    const uploadedReceipts: Array<{ filename: string; driveFileId: string | null }> = [];
+
+    if (receipts.length > 0 && driveSettings) {
+      db.showToast('Google Driveにアップロード中...', 'info');
+      for (const r of receipts) {
+        try {
+          const result = await uploadFileToDrive(r.file, description);
+          uploadedReceipts.push({ filename: r.file.name, driveFileId: result.id });
+          db.showToast(`✓ ${r.file.name} をDriveにアップロードしました`, 'success');
+        } catch (err: any) {
+          db.showToast(`⚠ Drive upload失敗: ${err.message}`, 'error');
+          uploadedReceipts.push({ filename: r.file.name, driveFileId: null });
+        }
+      }
+    } else {
+      receipts.forEach(r => uploadedReceipts.push({ filename: r.file.name, driveFileId: null }));
+    }
+
     try {
-      await db.upsertExpense(buildExpense('pending_manager'));
+      const maxId = db.expenses.reduce((m, e) => Math.max(m, e.id), 0);
+      const expense = {
+        id: maxId + 1,
+        userId: user!.id,
+        date,
+        category: lineItems[0]?.category || 1,
+        amount: totalAmount,
+        description,
+        memo,
+        taxType: lineItems[0]?.taxType || 'tax_10',
+        status: 'pending_manager',
+        receipt: uploadedReceipts[0]?.filename || null,
+        driveFileId: uploadedReceipts[0]?.driveFileId || null,
+        approvalHistory: [
+          { action: 'submitted', by: user!.name, at: new Date().toISOString(), comment: '' }
+        ],
+        lineItems,
+        receipts: uploadedReceipts,
+      };
+      await db.upsertExpense(expense);
       db.showToast('申請を提出しました', 'success');
       router.push('/dashboard/list');
     } catch {
@@ -165,7 +204,7 @@ export default function ApplyPage() {
   const handleSaveDraft = async () => {
     setSavingDraft(true);
     try {
-      await db.upsertExpense(buildExpense('draft'));
+      await db.upsertExpense(buildDraft());
       db.showToast('下書きを保存しました', 'success');
       router.push('/dashboard/list');
     } catch {
@@ -247,8 +286,9 @@ export default function ApplyPage() {
         <div className="form-group">
           <label className="form-label">
             領収書
-            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '400', marginLeft: '8px', textTransform: 'none', letterSpacing: 0 }}>
-              ※ 画像アップロードで金額を自動読取（OCR）
+            <span style={{ fontSize: '11px', fontWeight: '400', marginLeft: '8px', textTransform: 'none', letterSpacing: 0,
+              color: getDriveSettings() ? 'var(--success-color)' : 'var(--text-secondary)' }}>
+              {getDriveSettings() ? '✓ Google Driveに自動アップロード' : '※ 画像アップロードでOCR金額読取'}
             </span>
           </label>
 
