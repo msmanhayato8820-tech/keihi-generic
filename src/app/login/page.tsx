@@ -81,7 +81,7 @@ export default function LoginPage() {
           {/* Demo accounts */}
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '20px' }}>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-              デモアカウント（クリックで自動入力）
+              デモアカウント（パスワード: <strong>demo</strong>）
             </p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
               {MOCK_USERS.map(u => (
@@ -95,6 +95,8 @@ export default function LoginPage() {
                   </span>
                   <br />
                   <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>{u.name}</span>
+                  <br />
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '10px', opacity: 0.6 }}>{u.email}</span>
                 </button>
               ))}
             </div>
