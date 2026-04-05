@@ -3,6 +3,17 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 type Theme = 'dark' | 'light';
 interface ThemeContextType { theme: Theme; toggleTheme: () => void; }
 const ThemeContext = createContext<ThemeContextType | null>(null);
+
+function applyTheme(theme: Theme) {
+  if (theme === 'dark') {
+    document.body.classList.add('dark');
+    document.documentElement.setAttribute('data-theme', 'dark');
+  } else {
+    document.body.classList.remove('dark');
+    document.documentElement.setAttribute('data-theme', 'light');
+  }
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>('dark');
   const [mounted, setMounted] = useState(false);
@@ -13,7 +24,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => {
     if (!mounted) return;
-    document.body.className = theme === 'dark' ? 'dark' : '';
+    applyTheme(theme);
     localStorage.setItem('keihi_theme', theme);
   }, [theme, mounted]);
   const toggleTheme = useCallback(() => setTheme(p => p === 'dark' ? 'light' : 'dark'), []);

@@ -1,8 +1,8 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { User, Expense, Category, Department, DBContextType } from '@/types';
-import { DEFAULT_CATEGORIES, DEFAULT_DEPARTMENTS, MOCK_EXPENSES, MOCK_USERS, DEFAULT_GAS_URL } from '@/data/mock';
+import { User, Expense, Category, Department, Vendor, DBContextType } from '@/types';
+import { DEFAULT_CATEGORIES, DEFAULT_DEPARTMENTS, MOCK_EXPENSES, MOCK_USERS, MOCK_VENDORS, DEFAULT_GAS_URL } from '@/data/mock';
 
 const DataContext = createContext<DBContextType | null>(null);
 
@@ -11,10 +11,28 @@ function getScriptUrl(): string {
   return localStorage.getItem('gasScriptUrl') || DEFAULT_GAS_URL;
 }
 
-async function fetchAll() {
+function isGasConfigured(): boolean {
   const url = getScriptUrl();
-  if (url) {
+  if (!url) return false;
+  if (url.includes('YOUR_GAS_SCRIPT_ID')) return false;
+  if (!url.startsWith('https://script.google.com/')) return false;
+  return true;
+}
+
+function getLocalData() {
+  return {
+    users: JSON.parse(typeof window !== 'undefined' ? localStorage.getItem('users') || '[]' : '[]'),
+    expenses: JSON.parse(typeof window !== 'undefined' ? localStorage.getItem('expenses') || '[]' : '[]'),
+    categories: JSON.parse(typeof window !== 'undefined' ? localStorage.getItem('categories') || JSON.stringify(DEFAULT_CATEGORIES) : JSON.stringify(DEFAULT_CATEGORIES)),
+    departments: DEFAULT_DEPARTMENTS,
+    vendors: JSON.parse(typeof window !== 'undefined' ? localStorage.getItem('vendors') || JSON.stringify(MOCK_VENDORS) : JSON.stringify(MOCK_VENDORS)),
+  };
+}
+
+async function fetchAll() {
+  if (isGasConfigured()) {
     try {
+      const url = getScriptUrl();
       const res = await fetch(url + '?action=init');
       const data = await res.json();
       if (!data.error) {
@@ -23,27 +41,42 @@ async function fetchAll() {
           expenses: data.expenses || [],
           categories: data.categories?.length ? data.categories : DEFAULT_CATEGORIES,
           departments: data.departments?.length ? data.departments : DEFAULT_DEPARTMENTS,
+          vendors: data.vendors || [],
         };
       }
-    } catch {}
+    } catch {
+      // GAS fetch failed — fall back to local/mock data
+    }
   }
-  return {
-    users: JSON.parse(typeof window !== 'undefined' ? localStorage.getItem('users') || '[]' : '[]'),
-    expenses: JSON.parse(typeof window !== 'undefined' ? localStorage.getItem('expenses') || '[]' : '[]'),
-    categories: JSON.parse(typeof window !== 'undefined' ? localStorage.getItem('categories') || JSON.stringify(DEFAULT_CATEGORIES) : JSON.stringify(DEFAULT_CATEGORIES)),
-    departments: DEFAULT_DEPARTMENTS,
-  };
+  return getLocalData();
 }
 
 async function gasPost(body: object) {
+  if (!isGasConfigured()) return;
   const url = getScriptUrl();
-  if (!url) return;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  return res.json();
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return res.json();
+  } catch {
+    // GAS post failed — silently ignore in demo mode
+  }
+}
+
+// Slack通知
+async function sendSlackNotification(message: string) {
+  if (typeof window === 'undefined') return;
+  const webhookUrl = localStorage.getItem('slackWebhookUrl');
+  if (!webhookUrl) return;
+  try {
+    await fetch(webhookUrl, {
+      method: 'POST',
+      body: JSON.stringify({ text: message }),
+    });
+  } catch {}
 }
 
 export function DataProvider({ children }: { children: ReactNode }) {
@@ -51,6 +84,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
   const [departments] = useState<Department[]>(DEFAULT_DEPARTMENTS);
+  const [vendors, setVendors] = useState<Vendor[]>(MOCK_VENDORS);
   const [isOnline, setIsOnline] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: string; key: number } | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -67,18 +101,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setUsers(finalUsers);
       setExpenses(finalExpenses);
       setCategories(data.categories);
-      setIsOnline(!!getScriptUrl());
+      setVendors(data.vendors.length > 0 ? data.vendors : MOCK_VENDORS);
+      setIsOnline(isGasConfigured());
     } catch {
       setUsers(MOCK_USERS);
       setExpenses(MOCK_EXPENSES);
     }
   }, []);
 
-  useEffect(() => {
-    setMounted(true);
-    refresh();
-  }, [refresh]);
-
+  useEffect(() => { setMounted(true); refresh(); }, [refresh]);
   useEffect(() => {
     if (!mounted) return;
     const interval = setInterval(refresh, 60000);
@@ -105,11 +136,25 @@ export function DataProvider({ children }: { children: ReactNode }) {
   };
 
   const upsertExpense = async (expense: Expense) => {
+    // 電子帳簿保存法: タイムスタンプ自動付与
+    const now = new Date().toISOString();
+    if (!expense.createdAt) expense.createdAt = now;
+    expense.updatedAt = now;
+
     setExpenses(prev => {
       const idx = prev.findIndex(e => e.id === expense.id);
       if (idx >= 0) { const next = [...prev]; next[idx] = expense; return next; }
       return [...prev, expense];
     });
+
+    // Slack通知
+    if (expense.status === 'pending_manager') {
+      const userName = users.find(u => u.id === expense.userId)?.name || '';
+      sendSlackNotification(`📝 新しい経費申請: ${userName}さんが「${expense.description}」¥${(expense.amount || 0).toLocaleString()}を申請しました`);
+    } else if (expense.status === 'approved') {
+      sendSlackNotification(`✅ 経費承認完了: 「${expense.description}」¥${(expense.amount || 0).toLocaleString()}が承認されました`);
+    }
+
     try { await gasPost({ action: 'upsert', sheet: 'expenses', data: expense }); } catch {}
   };
 
@@ -118,9 +163,31 @@ export function DataProvider({ children }: { children: ReactNode }) {
     try { await gasPost({ action: 'replace', sheet: 'categories', data: cats }); } catch {}
   };
 
+  const upsertVendor = async (vendor: Vendor) => {
+    let updated: Vendor[] = [];
+    setVendors(prev => {
+      const idx = prev.findIndex(v => v.id === vendor.id);
+      updated = idx >= 0 ? prev.map((v, i) => i === idx ? vendor : v) : [...prev, vendor];
+      return updated;
+    });
+    localStorage.setItem('vendors', JSON.stringify(updated));
+    try { await gasPost({ action: 'upsert', sheet: 'vendors', data: vendor }); } catch {}
+  };
+
+  const deleteVendor = async (id: number) => {
+    let updated: Vendor[] = [];
+    setVendors(prev => {
+      updated = prev.filter(v => v.id !== id);
+      return updated;
+    });
+    localStorage.setItem('vendors', JSON.stringify(updated));
+    try { await gasPost({ action: 'delete', sheet: 'vendors', id }); } catch {}
+  };
+
   const db: DBContextType = {
-    users, expenses, categories, departments,
+    users, expenses, categories, departments, vendors,
     upsertUser, deleteUser, bulkSetUsers, upsertExpense, saveCategories,
+    upsertVendor, deleteVendor,
     refresh, isOnline, showToast,
   };
 
