@@ -105,7 +105,7 @@
 
 ### ソースコード一式
 - Next.js 16 + React 19 + TypeScript のフルソースコード
-- GitHub リポジトリへのアクセス: ※後で追加
+- GitHub リポジトリへのアクセス: https://github.com/msmanhayato8820-tech/keihi-generic
 
 ### Google Apps Script (GAS)
 - スプレッドシート連携用のGASコード
