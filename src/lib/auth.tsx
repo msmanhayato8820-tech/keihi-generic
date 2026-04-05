@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '@/types';
-import { MOCK_USERS } from '@/data/mock';
+import { getMockUsers } from '@/data/mock';
 
 interface AuthContextType {
   user: User | null;
@@ -13,10 +13,11 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 function mockLogin(email: string, password: string, users: User[]): User | null {
-  const mockUser = MOCK_USERS.find(u => u.email === email);
+  const demoUsers = getMockUsers();
+  const mockUser = demoUsers.find(u => u.email === email);
   if (mockUser && password === 'demo') return mockUser;
   const realUser = users.find(u => u.email === email);
-  if (realUser) return realUser;
+  if (realUser && password === 'demo') return realUser;
   return null;
 }
 

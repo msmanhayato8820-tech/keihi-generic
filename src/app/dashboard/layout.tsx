@@ -4,6 +4,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { ThemeProvider, useTheme } from '@/lib/theme';
 import { DataProvider, useDB } from '@/lib/db';
+import { getCompanySettings, applyCompanyColors } from '@/lib/company';
 
 function Sidebar() {
   const { user, logout } = useAuth();
@@ -11,18 +12,33 @@ function Sidebar() {
   const db = useDB();
   const router = useRouter();
   const pathname = usePathname();
+  const [companyName, setCompanyName] = useState('');
+
+  useEffect(() => {
+    const s = getCompanySettings();
+    setCompanyName(s.companyName);
+    applyCompanyColors(s);
+  }, []);
 
   if (!user) return null;
 
   const handleLogout = () => { logout(); router.push('/login'); };
+
+  // Count pending approvals for badge
+  const pendingCount = db.expenses.filter(e => {
+    if ((user.role === 'manager' || user.role === 'admin') && e.status === 'pending_manager') return true;
+    if (user.role === 'accountant' && e.status === 'pending_accountant') return true;
+    return false;
+  }).length;
 
   const nav = [
     { href: '/dashboard', label: '📊 ダッシュボード', exact: true },
     { href: '/dashboard/apply', label: '📝 経費申請' },
     { href: '/dashboard/list', label: '📋 申請一覧' },
     ...(user.role === 'manager' || user.role === 'accountant' || user.role === 'admin'
-      ? [{ href: '/dashboard/approval', label: '✓ 承認', exact: false }] : []),
+      ? [{ href: '/dashboard/approval', label: `✓ 承認${pendingCount > 0 ? ` (${pendingCount})` : ''}`, exact: false, badge: pendingCount }] : []),
     { href: '/dashboard/reports', label: '📈 レポート' },
+    { href: '/dashboard/vendors', label: '🏢 取引先マスタ' },
     ...(user.role === 'admin' ? [{ href: '/dashboard/users', label: '👥 ユーザー管理', exact: false }] : []),
     { href: '/dashboard/settings', label: '⚙ 設定' },
   ];
@@ -35,7 +51,7 @@ function Sidebar() {
 
   return (
     <div className="sidebar">
-      <div className="logo">AneSystem</div>
+      <div className="logo">{companyName || '経費管理'}</div>
       <div className={`db-status ${db.isOnline ? 'db-online' : 'db-offline'}`}>
         {db.isOnline ? '🟢 共有DB接続中' : '🟡 デモモード'}
       </div>

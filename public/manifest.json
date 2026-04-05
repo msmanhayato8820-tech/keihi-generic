@@ -1,7 +1,7 @@
 {
-  "name": "経費精算 - アネストシステム",
+  "name": "経費精算システム",
   "short_name": "経費精算",
-  "description": "アネストシステム 経費精算・承認ワークフロー",
+  "description": "経費精算・承認ワークフロー",
   "start_url": "/login",
   "display": "standalone",
   "background_color": "#0a0a1a",

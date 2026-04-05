@@ -1,9 +1,10 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/lib/theme';
-import { MOCK_USERS, MOCK_USER_ROLE_LABELS } from '@/data/mock';
+import { getMockUsers, MOCK_USER_ROLE_LABELS } from '@/data/mock';
+import { getCompanySettings, applyCompanyColors } from '@/lib/company';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -12,6 +13,24 @@ export default function LoginPage() {
   const { login } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const router = useRouter();
+
+  const [companyName, setCompanyName] = useState('会社名');
+  const [systemName, setSystemName] = useState('経費管理システム');
+  const [logoLetter, setLogoLetter] = useState('K');
+  const [primaryColor, setPrimaryColor] = useState('#3b82f6');
+  const [secondaryColor, setSecondaryColor] = useState('#8b5cf6');
+  const [demoUsers, setDemoUsers] = useState(getMockUsers());
+
+  useEffect(() => {
+    const s = getCompanySettings();
+    setCompanyName(s.companyName);
+    setSystemName(s.systemName);
+    setLogoLetter(s.logoLetter);
+    setPrimaryColor(s.primaryColor);
+    setSecondaryColor(s.secondaryColor);
+    applyCompanyColors(s);
+    setDemoUsers(getMockUsers());
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,7 +44,7 @@ export default function LoginPage() {
 
   return (
     <div className="login-page">
-      <div style={{ width: '100%', maxWidth: '440px', padding: '0 16px' }}>
+      <div style={{ width: '100%', maxWidth: '440px', padding: '0 16px', boxSizing: 'border-box' }}>
         {/* Theme toggle */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
           <button onClick={toggleTheme} className="theme-toggle-btn">
@@ -41,16 +60,16 @@ export default function LoginPage() {
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
           <div style={{
             width: '56px', height: '56px', borderRadius: '16px',
-            background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+            background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            margin: '0 auto 16px', boxShadow: '0 8px 24px rgba(59,130,246,0.3)'
+            margin: '0 auto 16px', boxShadow: `0 8px 24px ${primaryColor}4D`
           }}>
-            <span style={{ color: 'white', fontSize: '24px', fontWeight: '800' }}>A</span>
+            <span style={{ color: 'white', fontSize: '24px', fontWeight: '800' }}>{logoLetter}</span>
           </div>
           <h1 style={{ fontSize: '22px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '4px' }}>
-            アネストシステム
+            {companyName}
           </h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>経費管理システム</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>{systemName}</p>
         </div>
 
         {/* Login Card */}
@@ -61,7 +80,7 @@ export default function LoginPage() {
               <input
                 type="email" className="form-control"
                 value={email} onChange={e => setEmail(e.target.value)}
-                placeholder="admin@anest.co.jp" required
+                placeholder={demoUsers[0]?.email || 'user@example.co.jp'} required
               />
             </div>
             <div className="form-group">
@@ -83,8 +102,8 @@ export default function LoginPage() {
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
               デモアカウント（パスワード: <strong>demo</strong>）
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              {MOCK_USERS.map(u => (
+            <div className="demo-btn-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              {demoUsers.map(u => (
                 <button
                   key={u.email}
                   onClick={() => { setEmail(u.email); setPassword('demo'); setError(''); }}
@@ -96,7 +115,7 @@ export default function LoginPage() {
                   <br />
                   <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>{u.name}</span>
                   <br />
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '10px', opacity: 0.6 }}>{u.email}</span>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '10px', opacity: 0.6, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</span>
                 </button>
               ))}
             </div>

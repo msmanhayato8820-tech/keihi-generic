@@ -1,36 +1,89 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# keihi-generic - 経費精算システム
 
-## Getting Started
+GAS + Next.js製の経費精算システム。中小企業向けに設計されており、Vercel無料枠 + GASスプレッドシートで月額0円で運用可能です。
 
-First, run the development server:
+## デモ
+
+**URL:** https://keihi-generic.vercel.app/login
+
+| ロール | メール | パスワード |
+|--------|--------|-----------|
+| 管理者 | admin@example.co.jp | demo |
+| 部長 | manager@example.co.jp | demo |
+| 経理 | accountant@example.co.jp | demo |
+| 一般社員 | employee@example.co.jp | demo |
+
+## 主な機能
+
+- **承認ワークフロー**: 社員 → 部長 → 経理の多段階承認
+- **領収書OCR**: Tesseract.js (無料) / Gemini API (高精度)
+- **通知**: Slack / Microsoft Teams / メール (GASリレー)
+- **クラウドストレージ**: AWS S3 / Google Drive / OneDrive / Box / Dropbox / Backblaze B2 / Cloudflare R2
+- **会計ソフト連携**: マネーフォワード / freee / 弥生 への仕訳CSV出力
+- **GUI設定**: 会社名・ロゴ・カラー・デモアカウント・カテゴリ・税率すべて設定画面から変更可能
+- **PWA対応**: スマートフォンでもネイティブアプリ風に使用可能
+
+## 技術スタック
+
+- Next.js 16.2.2 / React 19 / TypeScript
+- Tailwind CSS 4
+- Tesseract.js 7 (OCR)
+- Google Apps Script (バックエンド / データベース)
+- Vercel (ホスティング)
+
+## セットアップ
+
+### 1. クローン & インストール
+
+```bash
+git clone https://github.com/msmanhayato8820-tech/keihi-generic.git
+cd keihi-generic
+npm install
+```
+
+### 2. ローカル起動
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+http://localhost:3000 でアクセスできます。GAS未設定の場合はデモモードで動作します。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 3. Vercelデプロイ
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npx vercel --yes
+```
 
-## Learn More
+### 4. GASスプレッドシート連携（任意）
 
-To learn more about Next.js, take a look at the following resources:
+1. Google スプレッドシートを新規作成
+2. Apps Script エディタを開き、GASコードを貼り付け
+3. ウェブアプリとしてデプロイし、URLを取得
+4. 設定画面 → GAS URL 設定にURLを入力
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 5. 通知設定（任意）
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+設定画面から各サービスのWebhook URLを入力するだけで有効化されます。
 
-## Deploy on Vercel
+- **Slack**: Incoming Webhook のURLを設定
+- **Teams**: Incoming Webhook のURLを設定
+- **メール**: GAS URL設定済みの場合、メール通知セクションでGASリレーを有効化
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## カスタマイズ
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+設定画面（管理者ログイン → 設定）から以下をGUIで変更できます：
+
+- 会社名・システム名
+- ロゴ文字・テーマカラー
+- メールドメイン
+- デモアカウント
+- 経費カテゴリ（追加・編集・並び替え・削除）
+- 税率（追加・編集）
+- ストレージプロバイダ
+- 通知チャネル
+- OCRエンジン
+
+## ライセンス
+
+MIT License

@@ -138,7 +138,7 @@ export default function UsersPage() {
                 <input
                   type="email" className="form-control"
                   value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                  placeholder="user@anest.co.jp"
+                  placeholder="user@example.co.jp"
                 />
               </div>
             </div>

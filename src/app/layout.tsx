@@ -5,8 +5,8 @@ import './globals.css';
 const inter = Inter({ variable: '--font-inter', subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'アネストシステム | 経費管理システム',
-  description: 'アネストシステム 経費申請・承認・管理システム',
+  title: '経費管理システム',
+  description: '経費申請・承認・管理システム',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

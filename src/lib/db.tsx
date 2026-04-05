@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { User, Expense, Category, Department, Vendor, DBContextType } from '@/types';
-import { DEFAULT_CATEGORIES, DEFAULT_DEPARTMENTS, MOCK_EXPENSES, MOCK_USERS, MOCK_VENDORS, DEFAULT_GAS_URL } from '@/data/mock';
+import { DEFAULT_CATEGORIES, DEFAULT_DEPARTMENTS, MOCK_EXPENSES, MOCK_VENDORS, DEFAULT_GAS_URL, getMockUsers } from '@/data/mock';
 
 const DataContext = createContext<DBContextType | null>(null);
 
@@ -79,6 +79,51 @@ async function sendSlackNotification(message: string) {
   } catch {}
 }
 
+// Microsoft Teams通知
+async function sendTeamsNotification(message: string, triggerType: 'submitted' | 'approved' | 'rejected') {
+  if (typeof window === 'undefined') return;
+  try {
+    const settings = JSON.parse(localStorage.getItem('teamsSettings') || '{}');
+    if (!settings.webhookUrl) return;
+    if (!settings.triggers?.[triggerType]) return;
+    await fetch(settings.webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'message',
+        attachments: [{
+          contentType: 'application/vnd.microsoft.card.adaptive',
+          content: {
+            type: 'AdaptiveCard',
+            version: '1.4',
+            body: [{ type: 'TextBlock', text: message, wrap: true }]
+          }
+        }]
+      }),
+    });
+  } catch {}
+}
+
+// メール通知（GASリレー経由）
+async function sendEmailNotification(subject: string, body: string, triggerType: 'submitted' | 'approved' | 'rejected') {
+  if (typeof window === 'undefined') return;
+  try {
+    const settings = JSON.parse(localStorage.getItem('emailSettings') || '{}');
+    if (!settings.toAddresses) return;
+    if (!settings.triggers?.[triggerType]) return;
+    if (settings.useGasRelay && isGasConfigured()) {
+      await gasPost({ action: 'sendEmail', subject, body, to: settings.toAddresses, from: settings.fromAddress });
+    }
+  } catch {}
+}
+
+// 全通知チャネルに送信
+function sendAllNotifications(message: string, triggerType: 'submitted' | 'approved' | 'rejected') {
+  sendSlackNotification(message);
+  sendTeamsNotification(message, triggerType);
+  sendEmailNotification(`【経費精算】${message}`, message, triggerType);
+}
+
 export function DataProvider({ children }: { children: ReactNode }) {
   const [users, setUsers] = useState<User[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -94,9 +139,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
+    const mockUsers = getMockUsers();
     try {
       const data = await fetchAll();
-      const finalUsers = data.users.length > 0 ? data.users : MOCK_USERS;
+      const finalUsers = data.users.length > 0 ? data.users : mockUsers;
       const finalExpenses = data.expenses.length > 0 ? data.expenses : MOCK_EXPENSES;
       setUsers(finalUsers);
       setExpenses(finalExpenses);
@@ -104,7 +150,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setVendors(data.vendors.length > 0 ? data.vendors : MOCK_VENDORS);
       setIsOnline(isGasConfigured());
     } catch {
-      setUsers(MOCK_USERS);
+      setUsers(mockUsers);
       setExpenses(MOCK_EXPENSES);
     }
   }, []);
@@ -147,12 +193,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
       return [...prev, expense];
     });
 
-    // Slack通知
+    // 通知
     if (expense.status === 'pending_manager') {
       const userName = users.find(u => u.id === expense.userId)?.name || '';
-      sendSlackNotification(`📝 新しい経費申請: ${userName}さんが「${expense.description}」¥${(expense.amount || 0).toLocaleString()}を申請しました`);
+      const msg = `📝 新しい経費申請: ${userName}さんが「${expense.description}」¥${(expense.amount || 0).toLocaleString()}を申請しました`;
+      sendAllNotifications(msg, 'submitted');
     } else if (expense.status === 'approved') {
-      sendSlackNotification(`✅ 経費承認完了: 「${expense.description}」¥${(expense.amount || 0).toLocaleString()}が承認されました`);
+      const msg = `✅ 経費承認完了: 「${expense.description}」¥${(expense.amount || 0).toLocaleString()}が承認されました`;
+      sendAllNotifications(msg, 'approved');
+    } else if (expense.status === 'rejected') {
+      const msg = `❌ 経費差戻し: 「${expense.description}」¥${(expense.amount || 0).toLocaleString()}が差し戻されました`;
+      sendAllNotifications(msg, 'rejected');
     }
 
     try { await gasPost({ action: 'upsert', sheet: 'expenses', data: expense }); } catch {}
